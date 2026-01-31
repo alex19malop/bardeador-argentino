@@ -201,8 +201,8 @@ export default function Home() {
           {/* Title */}
           <div className="text-center">
             <h1 className="text-2xl md:text-4xl lg:text-5xl font-black text-[#1a365d] tracking-tight leading-none">
-              <span className="block text-stroke glow-text">EL BARDEADOR</span>
-              <span className="block text-[#F6B40E] text-stroke-gold fire-text mt-1">ARGENTINO</span>
+              <span className="block text-stroke md:glow-text">EL BARDEADOR</span>
+              <span className="block text-[#F6B40E] text-stroke-gold md:fire-text mt-1">ARGENTINO</span>
             </h1>
             <p className="mt-2 text-xs md:text-sm text-[#4a6fa5] font-bold uppercase tracking-widest">
               Generador de puteadas nivel dios

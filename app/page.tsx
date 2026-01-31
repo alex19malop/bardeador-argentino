@@ -1,8 +1,8 @@
 "use client";
 
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import Image from "next/image";
-import { Twitter, MessageCircle, Volume2, VolumeX, Flame, Zap, Star, Copy, Check } from "lucide-react";
+import { Twitter, MessageCircle, Volume2, VolumeX, Flame, Zap, Star, Copy, Check, Flag } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { generateInsult } from "@/lib/markov";
@@ -16,6 +16,67 @@ const MEME_PHRASES = [
   "LA CONCHA DE TU MADRE",
   "DALE DALE DALE",
 ];
+
+const LOADING_PHRASES = [
+  "Consultando al Diego...",
+  "Pidiendo permiso al Messi...",
+  "Cargando bronca...",
+  "Importando puteadas de la cancha...",
+  "Canalizando la energía del Diego...",
+  "Invocando al espíritu bardeador...",
+  "Descargando insultos del más allá...",
+  "Mezclando puteadas con mate...",
+  "Consultando el VAR del bardo...",
+  "Activando modo argentino...",
+];
+
+// Traducciones gallego (español de España pero mal)
+const GALLEGO_TRANSLATIONS: Record<string, string> = {
+  "bardear": "insultar tío",
+  "bardo": "follón",
+  "bardos": "follones",
+  "che": "tío",
+  "boludo": "gilipollas",
+  "pelotudo": "imbécil",
+  "la concha": "hostia puta",
+  "concha": "coño",
+  "puta": "zorra",
+  "forro": "capullo",
+  "gordo": "gordo de mierda",
+  "pija": "polla",
+  "orto": "culo",
+  "chabón": "chaval",
+  "guita": "pasta",
+  "mina": "tía",
+  "pibe": "chaval",
+  "laburo": "curro",
+  "afanar": "mangar",
+  "morfar": "jamar",
+  "garpar": "soltar la pasta",
+  "trucho": "falso",
+  "chorro": "chorizo",
+  "mango": "pavo",
+  "guacho": "hijoputa",
+  "cagada": "cagada",
+  "quilombo": "follón",
+  "bondi": "bus",
+  "birra": "cerveza",
+  "puteadas": "insultos",
+  "puteada": "insulto",
+};
+
+function translateToGallego(text: string): string {
+  let result = text.toLowerCase();
+  for (const [arg, esp] of Object.entries(GALLEGO_TRANSLATIONS)) {
+    result = result.replace(new RegExp(arg, 'gi'), esp.trim());
+  }
+  // Agregar muletillas españolas random
+  const muletillas = [" tío", " joder", " hostia", " macho", " colega"];
+  if (Math.random() > 0.5) {
+    result += muletillas[Math.floor(Math.random() * muletillas.length)];
+  }
+  return result;
+}
 
 const SUN_OF_MAY = () => (
   <svg viewBox="0 0 100 100" className="w-full h-full">
@@ -64,14 +125,70 @@ export default function Home() {
   const [copied, setCopied] = useState(false);
   const [generateCount, setGenerateCount] = useState(0);
   const [soundEnabled, setSoundEnabled] = useState(true);
+  const [loadingPhrase, setLoadingPhrase] = useState("");
+  const [furiaMode, setFuriaMode] = useState(false);
+  const [gallegoMode, setGallegoMode] = useState(false);
+  const [easterEggTriggered, setEasterEggTriggered] = useState<"messi" | "diego" | null>(null);
+  const [epicZoom, setEpicZoom] = useState<"maradona" | "messi" | null>(null);
+  const lastShakeTime = useRef(0);
 
   useEffect(() => {
     setMemePhrase(MEME_PHRASES[Math.floor(Math.random() * MEME_PHRASES.length)]);
   }, []);
 
-  const playSound = useCallback((type: "generate" | "result") => {
+  // Activar modo furia después de 5 bardos
+  useEffect(() => {
+    if (generateCount >= 5 && !furiaMode) {
+      setFuriaMode(true);
+    }
+  }, [generateCount, furiaMode]);
+
+  // Shake detection para móvil
+  useEffect(() => {
+    let lastX = 0, lastY = 0, lastZ = 0;
+    const threshold = 25;
+
+    const handleMotion = (event: DeviceMotionEvent) => {
+      const acceleration = event.accelerationIncludingGravity;
+      if (!acceleration || acceleration.x === null || acceleration.y === null || acceleration.z === null) return;
+
+      const deltaX = Math.abs(acceleration.x - lastX);
+      const deltaY = Math.abs(acceleration.y - lastY);
+      const deltaZ = Math.abs(acceleration.z - lastZ);
+
+      if ((deltaX > threshold || deltaY > threshold || deltaZ > threshold)) {
+        const now = Date.now();
+        if (now - lastShakeTime.current > 2000) { // Cooldown de 2 segundos
+          lastShakeTime.current = now;
+          handleGenerate();
+        }
+      }
+
+      lastX = acceleration.x;
+      lastY = acceleration.y;
+      lastZ = acceleration.z;
+    };
+
+    // Pedir permiso en iOS
+    if (typeof DeviceMotionEvent !== 'undefined' && typeof (DeviceMotionEvent as unknown as { requestPermission?: () => Promise<string> }).requestPermission === 'function') {
+      (DeviceMotionEvent as unknown as { requestPermission: () => Promise<string> }).requestPermission()
+        .then((response: string) => {
+          if (response === 'granted') {
+            window.addEventListener('devicemotion', handleMotion);
+          }
+        })
+        .catch(console.error);
+    } else {
+      window.addEventListener('devicemotion', handleMotion);
+    }
+
+    return () => {
+      window.removeEventListener('devicemotion', handleMotion);
+    };
+  }, []);
+
+  const playSound = useCallback((type: "generate" | "result" | "easterEgg") => {
     if (!soundEnabled) return;
-    // Create oscillator for retro sound effects
     const audioContext = new (window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext)();
     const oscillator = audioContext.createOscillator();
     const gainNode = audioContext.createGain();
@@ -86,6 +203,18 @@ export default function Home() {
       gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.1);
       oscillator.start(audioContext.currentTime);
       oscillator.stop(audioContext.currentTime + 0.1);
+    } else if (type === "easterEgg") {
+      // Sonido épico para easter egg
+      oscillator.type = 'sawtooth';
+      oscillator.frequency.setValueAtTime(200, audioContext.currentTime);
+      oscillator.frequency.exponentialRampToValueAtTime(400, audioContext.currentTime + 0.1);
+      oscillator.frequency.exponentialRampToValueAtTime(600, audioContext.currentTime + 0.2);
+      oscillator.frequency.exponentialRampToValueAtTime(800, audioContext.currentTime + 0.3);
+      oscillator.frequency.exponentialRampToValueAtTime(1200, audioContext.currentTime + 0.4);
+      gainNode.gain.setValueAtTime(0.4, audioContext.currentTime);
+      gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.5);
+      oscillator.start(audioContext.currentTime);
+      oscillator.stop(audioContext.currentTime + 0.5);
     } else {
       oscillator.frequency.setValueAtTime(400, audioContext.currentTime);
       oscillator.frequency.exponentialRampToValueAtTime(600, audioContext.currentTime + 0.05);
@@ -102,23 +231,63 @@ export default function Home() {
     setIsGenerating(true);
     setShowResult(false);
     setShakeScreen(true);
+    setEasterEggTriggered(null);
+    setEpicZoom(null);
+    setLoadingPhrase(LOADING_PHRASES[Math.floor(Math.random() * LOADING_PHRASES.length)]);
     playSound("generate");
     
-    // Dramatic delay
+    // Check for easter eggs
+    const lowerStart = startWord.trim().toLowerCase();
+    const isMessiEgg = lowerStart === "messi" || lowerStart === "lionel";
+    const isDiegoEgg = lowerStart === "diego" || lowerStart === "maradona";
+    
+    // Dramatic delay (más largo en modo furia)
+    const shakeTime = furiaMode ? 1200 : 800;
     setTimeout(() => {
       setShakeScreen(false);
-    }, 800);
+    }, shakeTime);
 
+    const generateTime = furiaMode ? 1800 : 1200;
     setTimeout(() => {
-      const insult = generateInsult(startWord.trim() || undefined);
+      let insult = generateInsult(startWord.trim() || undefined);
+      
+      // Easter eggs
+      if (isMessiEgg) {
+        insult = "¿QUÉ MIRÁS, BOBO? ANDÁ PA' ALLÁ, BOBO. " + insult;
+        setEasterEggTriggered("messi");
+        setEpicZoom("messi");
+        playSound("easterEgg");
+      } else if (isDiegoEgg) {
+        insult = "LA PELOTA NO SE MANCHA... PERO VOS SÍ, HIJO DE PUTA. " + insult;
+        setEasterEggTriggered("diego");
+        setEpicZoom("maradona");
+        playSound("easterEgg");
+      } else {
+        // Zoom épico aleatorio
+        if (Math.random() > 0.5) {
+          setEpicZoom(Math.random() > 0.5 ? "maradona" : "messi");
+        }
+      }
+      
+      // Traducir si está en modo gallego
+      if (gallegoMode) {
+        insult = translateToGallego(insult);
+      }
+      
       setGeneratedInsult(insult);
       setShowResult(true);
       setIsGenerating(false);
       setGenerateCount(prev => prev + 1);
       setMemePhrase(MEME_PHRASES[Math.floor(Math.random() * MEME_PHRASES.length)]);
-      playSound("result");
-    }, 1200);
-  }, [startWord, playSound]);
+      
+      if (!isMessiEgg && !isDiegoEgg) {
+        playSound("result");
+      }
+      
+      // Reset epic zoom después de un tiempo
+      setTimeout(() => setEpicZoom(null), 2000);
+    }, generateTime);
+  }, [startWord, playSound, furiaMode, gallegoMode]);
 
   const copyToClipboard = async () => {
     await navigator.clipboard.writeText(generatedInsult);
@@ -139,9 +308,9 @@ export default function Home() {
   };
 
   return (
-    <main className={`min-h-screen relative overflow-hidden ${shakeScreen ? "intense-shake" : ""}`}>
+    <main className={`min-h-screen relative overflow-hidden ${shakeScreen ? (furiaMode ? "mega-shake" : "intense-shake") : ""} ${furiaMode ? "furia-mode" : ""}`}>
       {/* Crazy background */}
-      <div className="absolute inset-0 bg-linear-to-b from-[#75AADB] via-white via-50% to-[#75AADB]" />
+      <div className={`absolute inset-0 transition-all duration-500 ${furiaMode ? "bg-linear-to-b from-red-600 via-red-400 via-50% to-red-600" : "bg-linear-to-b from-[#75AADB] via-white via-50% to-[#75AADB]"}`} />
       
       {/* Floating suns */}
       <div className="absolute inset-0 pointer-events-none overflow-hidden">
@@ -174,8 +343,23 @@ export default function Home() {
 
       {/* Counter badge */}
       {generateCount > 0 && (
-        <div className="absolute top-4 left-4 z-50 px-3 py-1 rounded-full bg-[#F6B40E] text-[#1a365d] font-bold text-sm shadow-lg bounce-in">
-          {generateCount} {generateCount === 1 ? "bardo" : "bardos"} generados
+        <div className={`absolute top-4 left-4 z-50 px-3 py-1 rounded-full font-bold text-sm shadow-lg bounce-in ${furiaMode ? "bg-black text-red-500 animate-pulse" : "bg-[#F6B40E] text-[#1a365d]"}`}>
+          {furiaMode ? "🔥 MODO FURIA 🔥" : `${generateCount} ${generateCount === 1 ? "bardo" : "bardos"} generados`}
+        </div>
+      )}
+
+      {/* Modo Gallego toggle */}
+      <button
+        onClick={() => setGallegoMode(!gallegoMode)}
+        className={`absolute top-16 right-4 z-50 p-2 rounded-full shadow-lg transition-all hover:scale-110 ${gallegoMode ? "bg-red-600 text-yellow-400" : "bg-white/80 hover:bg-white"}`}
+        aria-label={gallegoMode ? "Desactivar modo gallego" : "Activar modo gallego"}
+        title={gallegoMode ? "Modo Gallego ON" : "Modo Gallego (traduce a español de España)"}
+      >
+        <Flag className={`w-5 h-5 ${gallegoMode ? "text-yellow-400" : "text-[#1a365d]"}`} />
+      </button>
+      {gallegoMode && (
+        <div className="absolute top-[104px] right-4 z-50 px-2 py-1 bg-red-600 text-yellow-400 text-xs font-bold rounded shadow-lg">
+          🇪🇸 MODO GALLEGO
         </div>
       )}
 
@@ -184,7 +368,7 @@ export default function Home() {
         <header className="flex items-center justify-center gap-4 md:gap-8 mb-6">
           {/* Maradona */}
           <div className="flex flex-col items-center patron-frame cursor-pointer" title="D10S">
-            <div className="relative w-20 h-20 md:w-28 md:h-28 rounded-full overflow-hidden border-4 border-[#F6B40E] shadow-xl float" style={{ animationDelay: "0s" }}>
+            <div className={`relative w-20 h-20 md:w-28 md:h-28 rounded-full overflow-hidden border-4 border-[#F6B40E] shadow-xl float transition-all duration-500 ${epicZoom === "maradona" ? "epic-zoom" : ""} ${easterEggTriggered === "diego" ? "ring-4 ring-yellow-400 ring-opacity-75 animate-pulse" : ""}`} style={{ animationDelay: "0s" }}>
               <Image
                 src="/maradona.jpg"
                 alt="Diego Maradona - D10S"
@@ -194,7 +378,7 @@ export default function Home() {
               <div className="absolute inset-0 bg-linear-to-t from-[#F6B40E]/30 to-transparent" />
             </div>
             <span className="mt-2 text-xs md:text-sm font-black text-[#1a365d] uppercase tracking-wider drop-shadow-sm">
-              D10S
+              {easterEggTriggered === "diego" ? "🔥 D10S 🔥" : "D10S"}
             </span>
           </div>
 
@@ -211,7 +395,7 @@ export default function Home() {
 
           {/* Messi */}
           <div className="flex flex-col items-center patron-frame cursor-pointer" title="EL GOAT">
-            <div className="relative w-20 h-20 md:w-28 md:h-28 rounded-full overflow-hidden border-4 border-[#F6B40E] shadow-xl float" style={{ animationDelay: "1.5s" }}>
+            <div className={`relative w-20 h-20 md:w-28 md:h-28 rounded-full overflow-hidden border-4 border-[#F6B40E] shadow-xl float transition-all duration-500 ${epicZoom === "messi" ? "epic-zoom" : ""} ${easterEggTriggered === "messi" ? "ring-4 ring-yellow-400 ring-opacity-75 animate-pulse" : ""}`} style={{ animationDelay: "1.5s" }}>
               <Image
                 src="/messi.jpg"
                 alt="Lionel Messi - El GOAT"
@@ -221,7 +405,7 @@ export default function Home() {
               <div className="absolute inset-0 bg-linear-to-t from-[#F6B40E]/30 to-transparent" />
             </div>
             <span className="mt-2 text-xs md:text-sm font-black text-[#1a365d] uppercase tracking-wider drop-shadow-sm">
-              EL GOAT
+              {easterEggTriggered === "messi" ? "🐐 GOAT 🐐" : "EL GOAT"}
             </span>
           </div>
         </header>
@@ -251,17 +435,17 @@ export default function Home() {
           <Button
             onClick={handleGenerate}
             disabled={isGenerating}
-            className="mega-button w-full py-8 text-2xl md:text-3xl font-black bg-[#F6B40E] hover:bg-[#d99e0a] text-[#1a365d] border-4 border-[#1a365d] rounded-2xl shadow-2xl uppercase tracking-wider disabled:opacity-50"
+            className={`mega-button w-full py-8 text-2xl md:text-3xl font-black border-4 rounded-2xl shadow-2xl uppercase tracking-wider disabled:opacity-50 transition-all ${furiaMode ? "bg-black hover:bg-gray-900 text-red-500 border-red-600 animate-pulse" : "bg-[#F6B40E] hover:bg-[#d99e0a] text-[#1a365d] border-[#1a365d]"}`}
           >
             {isGenerating ? (
               <span className="flex items-center gap-3">
                 <Zap className="w-8 h-8 animate-pulse" />
-                PROCESANDO BARDO...
+                {gallegoMode ? "PROCESANDO FOLLÓN..." : "PROCESANDO BARDO..."}
               </span>
             ) : (
               <span className="flex items-center gap-3">
                 <Flame className="w-8 h-8" />
-                BARDEAR!
+                {gallegoMode ? "¡INSULTAR TÍO!" : (furiaMode ? "🔥 BARDEAR 🔥" : "BARDEAR!")}
                 <Flame className="w-8 h-8" />
               </span>
             )}
@@ -270,22 +454,29 @@ export default function Home() {
           {/* Result */}
           {showResult && generatedInsult && (
             <div className="w-full slide-up-bounce">
-              <div className="relative bg-white border-4 border-[#1a365d] rounded-2xl shadow-2xl overflow-hidden">
+              <div className={`relative bg-white border-4 rounded-2xl shadow-2xl overflow-hidden ${furiaMode ? "border-red-600" : "border-[#1a365d]"} ${easterEggTriggered ? "ring-4 ring-yellow-400" : ""}`}>
                 {/* Decorative top bar */}
-                <div className="h-2 rainbow-border" />
+                <div className={`h-2 ${furiaMode ? "bg-linear-to-r from-red-600 via-orange-500 to-red-600" : "rainbow-border"}`} />
                 
                 <div className="p-6">
+                  {/* Easter egg banner */}
+                  {easterEggTriggered && (
+                    <div className="mb-4 p-2 bg-yellow-400 text-black text-center font-black text-sm rounded-lg animate-pulse">
+                      {easterEggTriggered === "messi" ? "🐐 EASTER EGG: QUÉ MIRÁS BOBO ACTIVATED 🐐" : "⚽ EASTER EGG: D10S MODE ACTIVATED ⚽"}
+                    </div>
+                  )}
+                  
                   {/* Meme phrase */}
                   <div className="flex items-center justify-center gap-2 mb-4">
-                    <Star className="w-5 h-5 text-[#F6B40E] fill-[#F6B40E]" />
-                    <span className="text-xs font-black text-[#F6B40E] uppercase tracking-widest">
-                      {memePhrase}
+                    <Star className={`w-5 h-5 ${furiaMode ? "text-red-500 fill-red-500" : "text-[#F6B40E] fill-[#F6B40E]"}`} />
+                    <span className={`text-xs font-black uppercase tracking-widest ${furiaMode ? "text-red-500" : "text-[#F6B40E]"}`}>
+                      {gallegoMode ? "HOSTIA TÍO" : memePhrase}
                     </span>
-                    <Star className="w-5 h-5 text-[#F6B40E] fill-[#F6B40E]" />
+                    <Star className={`w-5 h-5 ${furiaMode ? "text-red-500 fill-red-500" : "text-[#F6B40E] fill-[#F6B40E]"}`} />
                   </div>
 
                   {/* The insult */}
-                  <blockquote className="text-xl md:text-2xl lg:text-3xl font-black text-[#1a365d] text-center leading-tight text-reveal">
+                  <blockquote className={`text-xl md:text-2xl lg:text-3xl font-black text-center leading-tight text-reveal ${furiaMode ? "text-red-600" : "text-[#1a365d]"}`}>
                     {'"'}{generatedInsult}{'"'}
                   </blockquote>
 
@@ -344,12 +535,15 @@ export default function Home() {
 
           {/* Loading state */}
           {isGenerating && (
-            <div className="w-full p-8 bg-white/80 border-4 border-[#F6B40E] rounded-2xl text-center">
+            <div className={`w-full p-8 border-4 rounded-2xl text-center ${furiaMode ? "bg-black/80 border-red-600" : "bg-white/80 border-[#F6B40E]"}`}>
               <div className="w-24 h-24 mx-auto mb-4 spin-slow">
                 <SUN_OF_MAY />
               </div>
-              <p className="text-[#1a365d] font-black text-lg uppercase animate-pulse">
-                Canalizando la energia del Diego...
+              <p className={`font-black text-lg uppercase animate-pulse ${furiaMode ? "text-red-500" : "text-[#1a365d]"}`}>
+                {loadingPhrase}
+              </p>
+              <p className="text-xs text-gray-500 mt-2 md:hidden">
+                💡 Tip: Agitá el celular para bardear!
               </p>
             </div>
           )}
@@ -374,6 +568,30 @@ export default function Home() {
         .text-stroke-gold {
           -webkit-text-stroke: 2px #d99e0a;
           paint-order: stroke fill;
+        }
+        .furia-mode {
+          animation: furia-pulse 0.5s ease-in-out infinite;
+        }
+        @keyframes furia-pulse {
+          0%, 100% { filter: brightness(1); }
+          50% { filter: brightness(1.1) saturate(1.2); }
+        }
+        .mega-shake {
+          animation: mega-shake 0.15s ease-in-out infinite;
+        }
+        @keyframes mega-shake {
+          0%, 100% { transform: translateX(0) rotate(0); }
+          25% { transform: translateX(-8px) rotate(-2deg); }
+          75% { transform: translateX(8px) rotate(2deg); }
+        }
+        .epic-zoom {
+          animation: epic-zoom 0.5s ease-out forwards;
+          z-index: 100;
+        }
+        @keyframes epic-zoom {
+          0% { transform: scale(1); }
+          50% { transform: scale(1.8); }
+          100% { transform: scale(1.3); }
         }
       `}</style>
     </main>

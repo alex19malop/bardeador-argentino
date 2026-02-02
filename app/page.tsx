@@ -389,7 +389,7 @@ export default function Home() {
               <span className="block text-[#F6B40E] text-stroke-gold md:fire-text mt-1">ARGENTINO</span>
             </h1>
             <p className="mt-2 text-xs md:text-sm text-[#4a6fa5] font-bold uppercase tracking-widest">
-              Generador de puteadas nivel dios
+              Generador de puteadas con IA 🤖
             </p>
           </div>
 
@@ -552,10 +552,10 @@ export default function Home() {
         {/* Footer */}
         <footer className="mt-6 text-center">
           <p className="text-xs text-[#4a6fa5] font-bold">
-            Hecho con bronca y mate en Argentina
+            Hecho con bronca y mate en Argentina 🇦🇷
           </p>
           <p className="text-[10px] text-[#36536e] mt-1">
-            Powered by AI (y un toque de locura)
+            Generador de insultos potenciado por Inteligencia Artificial
           </p>
         </footer>
       </div>

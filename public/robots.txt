@@ -1,0 +1,7 @@
+# Robots.txt para El Bardeador Argentino
+
+User-agent: *
+Allow: /
+
+# Sitemap
+Sitemap: https://bardeador-argentino.vercel.app/sitemap.xml
